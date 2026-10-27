@@ -17,6 +17,8 @@ public class SecurityConfig implements WebMvcConfigurer {
 
     @Autowired
     private JwtInterceptor jwtInterceptor;
+    @Autowired
+    private AdminInterceptor adminInterceptor;
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -36,6 +38,7 @@ public class SecurityConfig implements WebMvcConfigurer {
     // 注册拦截器
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
+        // 1. 先注册 JWT 拦截器
         registry.addInterceptor(jwtInterceptor)
                 .addPathPatterns("/**") // 拦截所有请求
                 .excludePathPatterns(   // 但是要放行注册和登录接口，不然别人怎么登录？
@@ -44,5 +47,9 @@ public class SecurityConfig implements WebMvcConfigurer {
                         "/api/product/list",
                         "/images/**" // 新增：放行图片访问
                 );
+
+        // 2. 再注册管理员拦截器，专门拦截 /api/admin 开头的请求
+        registry.addInterceptor(adminInterceptor)
+                .addPathPatterns("/api/admin/**");
     }
 }

@@ -27,8 +27,13 @@ public class UserController {
             return Result.error("注册失败：学号和密码不能为空！");
         }
 
+        // 【新增逻辑】：如果前端没传昵称，给个默认昵称（比如“用户+学号后4位”）
+        if (user.getNickname() == null || user.getNickname().trim().isEmpty()) {
+            String defaultNickname = "用户" + user.getStudentId().substring(Math.max(0, user.getStudentId().length() - 4));
+            user.setNickname(defaultNickname);
+        }
+
         // 2. 校验学号是否已经被注册过
-        // MyBatis-Plus 提供了一种不用写 SQL 的查询方式，叫 QueryWrapper
         com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<User> queryWrapper = new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>();
         queryWrapper.eq("student_id", user.getStudentId());
         Long count = userMapper.selectCount(queryWrapper);
@@ -37,10 +42,8 @@ public class UserController {
             return Result.error("注册失败：该学号已被注册！");
         }
 
-        // 把明文密码加密，再存进数据库
+        // 3. 密码加密并保存
         user.setPassword(passwordEncoder.encode(user.getPassword()));
-        // 3. 保存到数据库
-        // 注意：这里为了演示，我们暂时存明文密码。下节课老师教你怎么加密。
         userMapper.insert(user);
 
         return Result.success("注册成功！欢迎加入校园二手集市！");
