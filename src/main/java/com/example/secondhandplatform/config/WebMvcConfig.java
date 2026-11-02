@@ -11,6 +11,6 @@ public class WebMvcConfig implements WebMvcConfigurer {
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         // 访问 /images/** 的请求，映射到本地 D:/secondhand-uploads/ 目录
         registry.addResourceHandler("/images/**")
-                .addResourceLocations("file:D:/secondhand-uploads/");
+                .addResourceLocations("file:/www/wwwroot/secondhand-uploads/");
     }
 }

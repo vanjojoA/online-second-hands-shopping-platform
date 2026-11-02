@@ -28,6 +28,9 @@
     </scm>
     <properties>
         <java.version>17</java.version>
+        <!-- 强制 Maven 编译时使用 UTF-8 编码 -->
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     </properties>
     <dependencies>
         <dependency>
@@ -104,6 +107,27 @@
 
     <build>
         <plugins>
+            <!-- 强制编译器使用 UTF-8 编译 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <encoding>UTF-8</encoding>
+                    <release>17</release>
+                    <!-- JDK 23 起 javac 默认不再自动运行 classpath 上的注解处理器；
+                         不显式开启的话 Lombok 不生效，@Data 生成的 getter/setter 全部缺失 -->
+                    <proc>full</proc>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+
+            <!-- 原有的打包插件 -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
