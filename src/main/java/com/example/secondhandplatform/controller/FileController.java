@@ -16,7 +16,7 @@ import java.util.UUID;
 public class FileController {
 
     // 定义图片保存的本地目录（你可以改成你电脑上真实存在的路径，比如 D:/img/）
-    private static final String UPLOAD_DIR = "D:/secondhand-uploads/";
+    private static final String UPLOAD_DIR = "/www/wwwroot/secondhand-uploads/";
 
     @PostMapping("/upload")
     public Result<?> uploadImage(@RequestParam("file") MultipartFile file) {
