@@ -103,6 +103,12 @@
             <artifactId>mybatis-plus-jsqlparser</artifactId>
             <version>3.5.13</version>
         </dependency>
+
+        <!-- Spring Boot 整合 Redis -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
     </dependencies>
 
     <build>
