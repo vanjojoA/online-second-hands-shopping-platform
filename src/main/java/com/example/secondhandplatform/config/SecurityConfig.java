@@ -45,7 +45,8 @@ public class SecurityConfig implements WebMvcConfigurer {
                         "/api/user/register",
                         "/api/user/login",
                         "/api/product/list",
-                        "/images/**" // 新增：放行图片访问
+                        "/images/**", // 新增：放行图片访问
+                        "/ws/**" // 新增：放行 WebSocket 连接
                 );
 
         // 2. 再注册管理员拦截器，专门拦截 /api/admin 开头的请求
