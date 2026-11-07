@@ -1,5 +1,6 @@
 package com.example.secondhandplatform.common;
 
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -28,5 +29,13 @@ public class GlobalExceptionHandler {
     public Result<?> handleNullPointerException(NullPointerException e) {
         e.printStackTrace();
         return Result.error("操作失败：系统内部数据缺失（空指针）！");
+    }
+
+    // 捕获参数校验异常
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public Result<?> handleValidationException(MethodArgumentNotValidException e) {
+        // 提取第一条校验失败的提示信息
+        String msg = e.getBindingResult().getFieldError().getDefaultMessage();
+        return Result.error("校验失败：" + msg);
     }
 }
