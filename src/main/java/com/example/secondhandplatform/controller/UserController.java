@@ -5,6 +5,7 @@ import com.example.secondhandplatform.entity.User;
 import com.example.secondhandplatform.mapper.UserMapper;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
@@ -21,13 +22,8 @@ public class UserController {
 
 
     @PostMapping("/register")
-    public Result<?> register(@RequestBody User user) {
-        // 1. 简单校验一下：学号和密码不能为空
-        if (user.getStudentId() == null || user.getPassword() == null) {
-            return Result.error("注册失败：学号和密码不能为空！");
-        }
-
-        // 【新增逻辑】：如果前端没传昵称，给个默认昵称（比如“用户+学号后4位”）
+    public Result<?> register(@Valid @RequestBody User user) {
+        // 1.如果前端没传昵称，给个默认昵称（比如“用户+学号后4位”）
         if (user.getNickname() == null || user.getNickname().trim().isEmpty()) {
             String defaultNickname = "用户" + user.getStudentId().substring(Math.max(0, user.getStudentId().length() - 4));
             user.setNickname(defaultNickname);
