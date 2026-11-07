@@ -3,6 +3,7 @@ package com.example.secondhandplatform.controller;
 import com.example.secondhandplatform.common.Result;
 import com.example.secondhandplatform.entity.Product;
 import com.example.secondhandplatform.mapper.ProductMapper;
+import com.example.secondhandplatform.mapper.UserMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.Cursor;
@@ -25,6 +26,8 @@ public class ProductController {
 
     @Autowired
     private StringRedisTemplate redisTemplate;
+
+    @Autowired private UserMapper userMapper;
 
     // Spring Boot 4 用的是 Jackson 3，自动配置的 Bean 是 tools.jackson.databind.json.JsonMapper
     // （Jackson 2 的 com.fasterxml.jackson.databind.ObjectMapper 在 Boot 4 里不在编译类路径上）
@@ -71,45 +74,83 @@ public class ProductController {
 
     @GetMapping("/list")
     public Result<?> getProductList(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Long categoryId,
+            @RequestParam(required = false) Double minPrice,
+            @RequestParam(required = false) Double maxPrice,
             @RequestParam(defaultValue = "1") Integer page,
             @RequestParam(defaultValue = "10") Integer size
     ) {
-        // 1. 拼接 Redis 的 key，比如 "product:list:1:10"
-        String redisKey = "product:list:" + page + ":" + size;
+        // 1. 拼接 Redis 缓存 Key (注意：参数越多，Key 越长，这里简单拼接演示)
+        String redisKey = "product:list:" + page + ":" + size + ":" +
+                (keyword == null ? "all" : keyword) + ":" +
+                (categoryId == null ? "0" : categoryId) + ":" +
+                (minPrice == null ? "0" : minPrice) + ":" +
+                (maxPrice == null ? "0" : maxPrice);
 
-        // 2. 先尝试从 Redis 里获取缓存；Redis 不可用时直接跳过缓存，不影响列表接口
-        try {
-            String cachedJson = redisTemplate.opsForValue().get(redisKey);
-            if (cachedJson != null) {
-                // 3. 缓存命中！把 JSON 反序列化回对象再包装，保证和未命中时返回的 JSON 结构一致
-                System.out.println("====== 缓存命中，直接从 Redis 返回数据 ======");
-                return Result.success(jsonMapper.readValue(cachedJson, Map.class));
+        // 2. 先查 Redis
+        String cachedJson = redisTemplate.opsForValue().get(redisKey);
+        if (cachedJson != null) {
+            System.out.println("====== 搜索缓存命中: " + redisKey + " ======");
+            try {
+                // 核心：把存进去的 JSON 字符串，重新反序列化回 Page 对象
+                tools.jackson.databind.ObjectMapper objectMapper = new tools.jackson.databind.ObjectMapper();
+                // 注意：Jackson 3 反序列化复杂泛型时，可能需要借助 TypeReference 或者明确的 Class
+                com.baomidou.mybatisplus.extension.plugins.pagination.Page<Product> cachedPage =
+                        objectMapper.readValue(cachedJson,
+                                new tools.jackson.core.type.TypeReference<com.baomidou.mybatisplus.extension.plugins.pagination.Page<Product>>() {});
+
+                // 返回真正的对象，这样前端拿到的 data 就是一个完整的 JSON 对象，而不是带引号的字符串
+                return Result.success(cachedPage);
+            } catch (Exception e) {
+                // 如果反序列化失败（比如缓存格式坏了），不要报错，直接让它穿透去查数据库
+                System.out.println("缓存解析失败，穿透查库: " + e.getMessage());
             }
-        } catch (Exception e) {
-            System.out.println("====== Redis 读取失败，降级查询数据库：" + e.getMessage() + " ======");
         }
 
-        // 4. 缓存未命中，去数据库查
-        System.out.println("====== 缓存未命中，开始查询 MySQL ======");
+        // 3. 缓存未命中，构建查询条件
+        System.out.println("====== 搜索缓存未命中，查询 MySQL ======");
         com.baomidou.mybatisplus.extension.plugins.pagination.Page<Product> pageParam =
                 new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, size);
+
         com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<Product> queryWrapper =
                 new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>();
-        queryWrapper.eq("status", 1).orderByDesc("create_time");
 
+        // 固定条件：必须是“在售”状态 (status = 1)
+        queryWrapper.eq("status", 1);
+
+        // 动态条件：如果有输入，才拼接 SQL
+        if (keyword != null && !keyword.trim().isEmpty()) {
+            queryWrapper.like("title", keyword); // 模糊查询标题
+        }
+        if (categoryId != null) {
+            queryWrapper.eq("category_id", categoryId); // 注意：你需要先给 product 表加上 category_id 字段
+        }
+        if (minPrice != null) {
+            queryWrapper.ge("price", minPrice); // 大于等于
+        }
+        if (maxPrice != null) {
+            queryWrapper.le("price", maxPrice); // 小于等于
+        }
+
+        queryWrapper.orderByDesc("create_time");
+
+        // 4. 执行查询
         com.baomidou.mybatisplus.extension.plugins.pagination.Page<Product> result =
                 productMapper.selectPage(pageParam, queryWrapper);
 
-        // 5. 将查询结果转成 JSON 字符串，存入 Redis（写缓存失败也不影响本次返回）
+        // 5. 写入 Redis 缓存（适配 Spring Boot 4 的 Jackson 3）
         try {
-            String jsonResult = jsonMapper.writeValueAsString(result);
-            // 设置 5 分钟过期时间，防止缓存永远占着内存
-            redisTemplate.opsForValue().set(redisKey, jsonResult, Duration.ofMinutes(5));
+            // 注意：这里换成了 tools.jackson.databind.ObjectMapper
+            tools.jackson.databind.ObjectMapper objectMapper = new tools.jackson.databind.ObjectMapper();
+            // 注意：Jackson 3 的 writeValueAsString 不再抛出受检异常，所以不需要 try-catch 来捕获它，但为了兼容 Redis 写入异常，外层依然保留 try-catch
+            String jsonResult = objectMapper.writeValueAsString(result);
+
+            redisTemplate.opsForValue().set(redisKey, jsonResult, 5, java.util.concurrent.TimeUnit.MINUTES);
         } catch (Exception e) {
-            System.out.println("====== Redis 写入失败，本次结果未缓存：" + e.getMessage() + " ======");
+            e.printStackTrace();
         }
 
-        // 6. 返回查询结果
         return Result.success(result);
     }
     @PutMapping("/updateStatus/{id}")
@@ -140,6 +181,30 @@ public class ProductController {
         clearProductListCache();
 
         return Result.success("商品已成功标记为售出！");
+    }
+
+    @GetMapping("/detail/{id}")
+    public Result<?> getProductDetail(@PathVariable Long id) {
+        // 1. 查商品
+        Product product = productMapper.selectById(id);
+        if (product == null) {
+            return Result.error("商品不存在或已被删除");
+        }
+
+        // 2. 查卖家信息
+        com.example.secondhandplatform.entity.User seller = userMapper.selectById(product.getUserId());
+
+        // 3. 脱敏，隐藏卖家密码
+        if (seller != null) {
+            seller.setPassword(null);
+        }
+
+        // 4. 包装返回结果（包含商品和卖家信息）
+        java.util.Map<String, Object> resultMap = new java.util.HashMap<>();
+        resultMap.put("product", product);
+        resultMap.put("seller", seller);
+
+        return Result.success(resultMap);
     }
 
     @GetMapping("/my")
