@@ -6,16 +6,12 @@ import com.example.secondhandplatform.mapper.ProductMapper;
 import com.example.secondhandplatform.mapper.UserMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.core.Cursor;
-import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.bind.annotation.*;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 
 @RestController
 @RequestMapping("/api/product")
@@ -39,18 +35,8 @@ public class ProductController {
      * 注意用 SCAN 而不是 KEYS：KEYS 会一次性阻塞 Redis，SCAN 是游标式增量遍历。
      */
     private void clearProductListCache() {
-        try (Cursor<String> cursor = redisTemplate.scan(
-                ScanOptions.scanOptions().match("product:list:*").count(200).build())) {
-            Set<String> keys = new HashSet<>();
-            cursor.forEachRemaining(keys::add);
-            if (!keys.isEmpty()) {
-                redisTemplate.delete(keys);
-            }
-            System.out.println("====== 商品数据变更，已清除 " + keys.size() + " 个列表缓存 ======");
-        } catch (Exception e) {
-            // 清缓存失败不能影响发布 / 改状态本身，记一条日志即可
-            System.out.println("====== 清除列表缓存失败（不影响业务）：" + e.getMessage() + " ======");
-        }
+        int count = com.example.secondhandplatform.utils.ProductCacheUtils.clearListCache(redisTemplate);
+        System.out.println("====== 商品数据变更，已清除 " + count + " 个列表缓存 ======");
     }
 
     @PostMapping("/publish")
@@ -62,14 +48,51 @@ public class ProductController {
             return Result.error("发布失败：无法获取用户信息！");
         }
 
-        // 绑定发布者ID，并设置初始状态为在售(1)
+        // 绑定发布者ID，新发布的商品先进入待审核状态（0），审核通过后才会展示
         product.setUserId(userId);
-        product.setStatus(1);
+        product.setStatus(0);
 
         productMapper.insert(product);
-        // 新增了商品，旧的列表缓存就过期了，清掉，保证下次请求能查到新商品
+        return Result.success("发布成功！商品已提交审核，审核通过后会出现在集市列表。");
+    }
+
+    /**
+     * 修改我发布的商品：修改后重新进入待审核状态
+     */
+    @PutMapping("/update/{id}")
+    public Result<?> updateProduct(@PathVariable Long id, @RequestBody Product update, HttpServletRequest request) {
+        Long userId = (Long) request.getAttribute("userId");
+        if (userId == null) {
+            return Result.error("操作失败：用户未登录");
+        }
+
+        Product dbProduct = productMapper.selectById(id);
+        if (dbProduct == null) {
+            return Result.error("操作失败：商品不存在");
+        }
+        if (!dbProduct.getUserId().equals(userId)) {
+            return Result.error("操作失败：只能修改自己发布的商品");
+        }
+
+        if (update.getTitle() != null && !update.getTitle().trim().isEmpty()) {
+            dbProduct.setTitle(update.getTitle().trim());
+        }
+        if (update.getPrice() != null) {
+            dbProduct.setPrice(update.getPrice());
+        }
+        if (update.getDescription() != null) {
+            dbProduct.setDescription(update.getDescription());
+        }
+        if (update.getImageUrls() != null) {
+            dbProduct.setImageUrls(update.getImageUrls());
+        }
+
+        // 修改后重新审核，通过前不会出现在集市列表
+        dbProduct.setStatus(0);
+        productMapper.updateById(dbProduct);
         clearProductListCache();
-        return Result.success("发布成功！商品已上架。");
+
+        return Result.success("修改成功！商品已提交重新审核。");
     }
 
     @GetMapping("/list")
