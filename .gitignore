@@ -31,3 +31,8 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# 忽略前端依赖和打包产物
+agent-frontend/node_modules/
+agent-frontend/dist/
+agent-frontend/.env.local
