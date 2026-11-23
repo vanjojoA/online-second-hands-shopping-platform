@@ -2,11 +2,13 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, ChatDotRound, Picture, Warning } from '@element-plus/icons-vue'
+import { ArrowLeft, ChatDotRound, Picture, Star, StarFilled, Warning } from '@element-plus/icons-vue'
 import AppHeader from '@/components/AppHeader.vue'
 import { getProductDetail } from '@/api/product'
 import { submitReport } from '@/api/report'
-import { getUser } from '@/utils/auth'
+import { getFavoriteIds, toggleFavorite } from '@/api/favorite'
+import { getToken, getUser } from '@/utils/auth'
+import { userState } from '@/stores/user'
 import { recordBrowse } from '@/api/history'
 import { resolveImageUrl } from '@/utils/url'
 
@@ -15,9 +17,12 @@ const router = useRouter()
 
 const loading = ref(false)
 const notFound = ref(false)
+const needLogin = ref(false)
 const product = ref(null)
 const seller = ref(null)
 const activeImage = ref(0)
+const favorited = ref(false)
+const favoriteLoading = ref(false)
 
 const images = computed(() => {
   const raw = product.value?.imageUrls
@@ -62,7 +67,51 @@ const backLabel = computed(() => (fromMyProducts.value ? '返回我的商品' : 
 
 const sellerText = computed(() => (seller.value?.nickname || '卖').slice(0, 1))
 
+// 游客模式：可以看商品，但联系卖家 / 举报等操作需要登录
+const loggedIn = computed(() => Boolean(userState.userId) || Boolean(getToken()))
+
+function requireLogin(message) {
+  if (getToken()) return true
+  ElMessage.warning(message || '请先登录后再使用该功能')
+  router.push({ name: 'login', query: { redirect: route.fullPath } })
+  return false
+}
+
+function goLogin() {
+  router.push({ name: 'login', query: { redirect: route.fullPath } })
+}
+
+function goRegister() {
+  router.push({ name: 'register', query: { redirect: route.fullPath } })
+}
+
+async function loadFavoriteState() {
+  if (!getToken() || !product.value) return
+  try {
+    const res = await getFavoriteIds({ __silent: true })
+    favorited.value = (res.data || []).some((id) => Number(id) === Number(product.value.id))
+  } catch {
+    // 忽略
+  }
+}
+
+async function toggleFavoriteAction() {
+  if (!requireLogin('登录后才能收藏商品')) return
+  favoriteLoading.value = true
+  try {
+    const res = await toggleFavorite(product.value.id)
+    favorited.value = Boolean(res.data?.favorited)
+    ElMessage.success(favorited.value ? '已收藏' : '已取消收藏')
+  } catch {
+    // 错误提示由拦截器处理
+  } finally {
+    favoriteLoading.value = false
+  }
+}
+
 function contactSeller() {
+  if (!requireLogin('登录后才能联系卖家')) return
+
   const id = seller.value?.id
   if (!id) {
     ElMessage.warning('暂时无法获取卖家信息')
@@ -86,6 +135,7 @@ const reportReason = ref('')
 const reporting = ref(false)
 
 function openReport() {
+  if (!requireLogin('登录后才能举报商品')) return
   reportReason.value = ''
   reportVisible.value = true
 }
@@ -116,6 +166,7 @@ async function handleReport() {
 async function load() {
   loading.value = true
   notFound.value = false
+  needLogin.value = false
   product.value = null
   seller.value = null
   try {
@@ -123,10 +174,22 @@ async function load() {
     product.value = res.data?.product || null
     seller.value = res.data?.seller || null
     activeImage.value = 0
-    if (!product.value) notFound.value = true
-    else recordBrowse(product.value.id).catch(() => {}) // 记录浏览历史（后端存库，可跨设备同步）
-  } catch {
-    notFound.value = true
+    if (!product.value) {
+      notFound.value = true
+    } else {
+      if (getToken()) {
+        // 只有登录用户才记录浏览历史（后端接口需要 Token）
+        recordBrowse(product.value.id, { __silent: true }).catch(() => {})
+      }
+      loadFavoriteState()
+    }
+  } catch (error) {
+    // 未登录访问详情（后端未放行 detail 时）要提示登录，而不是“商品不存在”
+    if (error?.response?.status === 401) {
+      needLogin.value = true
+    } else {
+      notFound.value = true
+    }
   } finally {
     loading.value = false
   }
@@ -146,7 +209,27 @@ watch(() => route.params.id, load, { immediate: true })
         </el-button>
       </div>
 
+      <div v-if="!loggedIn && product && !loading" class="guest-tip">
+        <span>当前为游客浏览，登录后可联系卖家、举报商品</span>
+        <div class="guest-actions">
+          <el-button size="small" @click="goLogin">登录</el-button>
+          <el-button size="small" type="primary" @click="goRegister">注册</el-button>
+        </div>
+      </div>
+
       <el-skeleton v-if="loading" class="skeleton" :rows="8" animated />
+
+      <el-result
+        v-else-if="needLogin"
+        icon="info"
+        title="请先登录"
+        sub-title="登录后即可查看商品详情、联系卖家"
+      >
+        <template #extra>
+          <el-button type="primary" @click="goLogin">去登录</el-button>
+          <el-button @click="router.push('/products')">返回商品列表</el-button>
+        </template>
+      </el-result>
 
       <el-result
         v-else-if="notFound"
@@ -223,6 +306,16 @@ watch(() => route.params.id, load, { immediate: true })
             </ul>
 
             <div class="actions">
+              <el-button
+                :type="favorited ? 'warning' : 'default'"
+                plain
+                size="large"
+                :icon="favorited ? StarFilled : Star"
+                :loading="favoriteLoading"
+                @click="toggleFavoriteAction"
+              >
+                {{ favorited ? '已收藏' : '收藏' }}
+              </el-button>
               <el-button type="primary" size="large" :icon="ChatDotRound" @click="contactSeller">
                 联系卖家
               </el-button>
@@ -296,6 +389,26 @@ watch(() => route.params.id, load, { immediate: true })
 
 .back-row {
   margin-bottom: 12px;
+}
+
+.guest-tip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: #f3f2ff;
+  border: 1px dashed #d8d5fb;
+  font-size: 13px;
+  color: #5b51c9;
+}
+
+.guest-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .skeleton {

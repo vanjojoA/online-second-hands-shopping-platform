@@ -1,17 +1,60 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Picture } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
+import { Picture, Star, StarFilled } from '@element-plus/icons-vue'
+import { toggleFavorite } from '@/api/favorite'
+import { getToken } from '@/utils/auth'
 import { resolveImageUrl } from '@/utils/url'
 
 const props = defineProps({
   product: {
     type: Object,
     required: true
+  },
+  favorited: {
+    type: Boolean,
+    default: false
+  },
+  canFavorite: {
+    type: Boolean,
+    default: false
   }
 })
 
+const emit = defineEmits(['favorite-changed'])
+
 const router = useRouter()
+const localFavorited = ref(props.favorited)
+const toggling = ref(false)
+
+watch(
+  () => props.favorited,
+  (value) => {
+    localFavorited.value = value
+  }
+)
+
+async function onToggleFavorite() {
+  if (!getToken()) {
+    ElMessage.warning('登录后才能收藏商品')
+    router.push({ name: 'login', query: { redirect: router.currentRoute.value.fullPath } })
+    return
+  }
+  if (toggling.value) return
+
+  toggling.value = true
+  try {
+    const res = await toggleFavorite(props.product.id)
+    localFavorited.value = Boolean(res.data?.favorited)
+    emit('favorite-changed', { id: props.product.id, favorited: localFavorited.value })
+    ElMessage.success(localFavorited.value ? '已收藏' : '已取消收藏')
+  } catch {
+    // 错误提示由拦截器处理
+  } finally {
+    toggling.value = false
+  }
+}
 
 const image = computed(() => resolveImageUrl(props.product.imageUrls))
 
@@ -73,6 +116,21 @@ function goDetail() {
       <el-tag :type="statusMeta.type" effect="dark" size="small" class="status-tag">
         {{ statusMeta.text }}
       </el-tag>
+
+      <button
+        v-if="canFavorite"
+        type="button"
+        class="fav-btn"
+        :class="{ active: localFavorited }"
+        :title="localFavorited ? '取消收藏' : '收藏商品'"
+        :disabled="toggling"
+        @click.stop="onToggleFavorite"
+      >
+        <el-icon>
+          <StarFilled v-if="localFavorited" />
+          <Star v-else />
+        </el-icon>
+      </button>
 
       <div class="thumb-hover">查看详情</div>
     </div>
@@ -146,6 +204,35 @@ function goDetail() {
   border-radius: 6px;
 }
 
+.fav-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  color: #8a90a0;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(31, 36, 48, 0.12);
+  transition: color 0.2s ease, transform 0.2s ease;
+  z-index: 2;
+}
+
+.fav-btn:hover {
+  transform: scale(1.08);
+  color: #f59e0b;
+}
+
+.fav-btn.active {
+  color: #f59e0b;
+}
+
 .thumb-hover {
   position: absolute;
   inset: 0;
@@ -158,6 +245,7 @@ function goDetail() {
   background: rgba(31, 36, 48, 0.38);
   opacity: 0;
   transition: opacity 0.25s ease;
+  pointer-events: none;
 }
 
 .product-card:hover .thumb-hover {

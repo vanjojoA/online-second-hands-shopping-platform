@@ -45,6 +45,8 @@ public class SecurityConfig implements WebMvcConfigurer {
                         "/api/user/register",
                         "/api/user/login",
                         "/api/product/list",
+                        // 商品详情也允许未登录查看（游客可以浏览商品）
+                        "/api/product/detail/**",
                         "/images/**", // 新增：放行图片访问
                         "/ws/**" // 新增：放行 WebSocket 连接
                 );

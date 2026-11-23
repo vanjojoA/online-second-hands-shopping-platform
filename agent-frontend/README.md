@@ -16,6 +16,10 @@
 - 个人中心（资料概览、头像上传、修改昵称、修改密码、常用入口）
 - 浏览记录（后端 MySQL 存储，登录同账号可跨设备同步，可单条删除 / 清空）
 - 管理员举报历史（待处理 / 已处理切换）
+- 商品收藏（列表/详情红心收藏，我的收藏页，跨设备同步）
+- 数据统计（管理员：今日新增用户/商品、成交额、近 7 天趋势折线图、商品状态饼图）
+- 游客浏览（商品列表/详情无需登录，操作其他功能时提示登录/注册）
+- 安全退出（退出登录调用后端接口，把 Token 加入 Redis 黑名单立即失效）
 - Axios 统一封装：自动携带 `Authorization: Bearer <token>`，统一处理 401（清登录态并跳登录页）与业务错误
 
 后端接口来自 Apifox 文档：<https://s.apifox.cn/471855be-9b0d-4551-bfc4-82013e230855>
@@ -53,6 +57,10 @@
 | 浏览记录 | 已处理举报 |
 | --- | --- |
 | ![浏览记录](./preview/history.png) | ![已处理举报](./preview/admin-reports-handled.png) |
+
+| 我的收藏 | 数据统计 |
+| --- | --- |
+| ![我的收藏](./preview/favorites.png) | ![数据统计](./preview/admin-stats.png) |
 
 > 截图中的“演示”商品是联调时为验证上传/发布流程临时创建的，验证完已删除，不是数据库里的固定数据。
 
@@ -133,8 +141,9 @@ agent-frontend
     │   ├── message.js       # 聊天记录、会话列表、未读数、已读
     │   ├── notification.js  # 系统通知列表 / 已读
     │   ├── history.js       # 浏览记录（后端接口）
+    │   ├── favorite.js      # 商品收藏
     │   ├── report.js        # 提交举报
-    │   └── admin.js         # 管理员：待审核商品、审核、举报处理/历史
+    │   └── admin.js         # 管理员：审核、举报、数据统计
     ├── composables
     │   └── useChatSocket.js # WebSocket 连接 + 断线重连
     ├── stores
@@ -157,10 +166,12 @@ agent-frontend
     │   ├── MessagesView.vue
     │   ├── NotificationsView.vue
     │   ├── MyProductsView.vue
+    │   ├── FavoritesView.vue
     │   └── admin
     │       ├── AdminLayout.vue
     │       ├── AdminProductsView.vue
-    │       └── AdminReportsView.vue
+    │       ├── AdminReportsView.vue
+    │       └── AdminStatsView.vue
     └── styles/index.css     # 主题变量与全局样式
 ```
 
@@ -169,6 +180,7 @@ agent-frontend
 | 功能 | 方法 | 路径 | 说明 |
 | --- | --- | --- | --- |
 | 登录 | POST | `/api/user/login` | Body：`{ studentId, password }`，返回 `data: { token, userId, nickname }` |
+| 退出登录 | POST | `/api/user/logout` | 需要 `Authorization`，把当前 Token 加入 Redis 黑名单，之后该 Token 请求返回 401 |
 | 注册 | POST | `/api/user/register` | Body：`{ studentId, password, nickname? }` |
 | 修改资料 | PUT | `/api/user/updateInfo` | Body：`{ nickname, avatar }` |
 | 修改密码 | PUT | `/api/user/updatePassword` | Body：`{ oldPassword, newPassword }`，成功后需重新登录 |
@@ -195,6 +207,11 @@ agent-frontend
 | 浏览记录 | GET | `/api/history/list` | 需要 `Authorization`，返回最近 50 条（带商品信息） |
 | 删除浏览记录 | DELETE | `/api/history/{id}` | 需要 `Authorization`，只能删自己的 |
 | 清空浏览记录 | DELETE | `/api/history/clear` | 需要 `Authorization` |
+| 收藏/取消收藏 | POST | `/api/favorite/toggle?productId=` | 需要 `Authorization`，返回 `{ favorited }` |
+| 收藏 ID 列表 | GET | `/api/favorite/ids` | 需要 `Authorization`，列表页渲染红心 |
+| 我的收藏 | GET | `/api/favorite/list` | 需要 `Authorization`，带商品信息 |
+| 取消收藏 | DELETE | `/api/favorite/{productId}` | 需要 `Authorization` |
+| 数据统计 | GET | `/api/admin/statistics/overview` | 仅管理员：今日新增、成交额、7 天趋势、状态分布 |
 | 处理举报 | PUT | `/api/admin/report/handle/{reportId}?action=1` | `action=1` 判定违规：下架商品 + 通知卖家；`action=0` 驳回举报：商品保持原状态、不发通知 |
 
 后端统一响应格式为 `{ code, message, data }`：`code === 200` 视为成功，其余情况由拦截器弹出 `message`。
@@ -370,6 +387,14 @@ docker run -d --name secondhand-platform -p 8080:8080 \
 
 以后重建容器时也要带上这个 `-v`。
 
+数据库需要多一张表/一个字段（已在本项目云端库执行过，脚本在 [sql/favorite_and_stats.sql](../sql/favorite_and_stats.sql)）：
+
+```bash
+mysql -u secondhand_db -p secondhand_db < sql/favorite_and_stats.sql
+```
+
+包含：`favorite` 收藏表、`product.sold_time` 成交时间字段（交易额统计用），以及历史已售商品的时间回填。
+
 ### 后端部署提醒
 
 本次联调新增/修改了后端代码：
@@ -411,10 +436,35 @@ docker run -d --name secondhand-platform -p 8080:8080 secondhand-platform
 
 1. **请求拦截器**：从 `localStorage` 取 `sp_token`，存在则加上 `Authorization: Bearer <token>`。
 2. **响应拦截器**：
-   - HTTP 401 → 清除本地登录态、提示“登录已过期，请重新登录”、跳转 `/login?redirect=当前地址`；
+   - HTTP 401 → 清除本地登录态；**在游客页面（商品列表/详情）只提示、不强制跳转**，在需要登录的页面才跳 `/login?redirect=当前地址`；
+   - 支持 `config.__silent = true` 静默请求（后台轮询、浏览记录上报），失败不弹提示；
    - 业务 `code !== 200` → 弹出后端返回的 `message` 并 reject；
    - 403 / 404 / 5xx / 超时 / 断网 → 分别给出中文提示。
-3. **路由守卫**：`/products`、`/products/:id`、`/publish`、`/chat/:friendId`、`/messages`、`/notifications`、`/my-products`、`/admin/**` 都需要登录；`/admin/**` 还会额外校验 `role === 1`。
+3. **路由守卫**：`/products`、`/products/:id` **游客可访问**；`/publish`、`/publish/:id`、`/chat/:friendId`、`/messages`、`/notifications`、`/my-products`、`/profile`、`/history`、`/admin/**` 需要登录；`/admin/**` 还会额外校验 `role === 1`。未登录访问受保护页面会提示「请先登录后再使用该功能」并跳到登录页。
+
+### 退出登录与 Token 黑名单
+
+后端在 `JwtInterceptor` 里会检查 Redis 的 `token:blacklist:<token>`，退出登录时 `POST /api/user/logout` 会把当前 Token 写进黑名单（过期时间与 Token 剩余有效期一致）。
+
+前端在顶栏「退出登录」时：
+
+1. 先调用 `POST /api/user/logout`（携带当前 Token）让后端拉黑；
+2. 再清除本地 `sp_token` / 用户信息；
+3. 跳转登录页。
+
+这样即使旧 Token 被截获，再拿来请求也会直接 401（已实测：退出后旧 Token 请求 `/api/user/info` 返回 401）。如果 logout 请求本身失败（网络/Token 已失效），前端仍会完成本地退出。
+
+### 游客浏览
+
+- `/products`、`/products/:id` 不要求登录，未登录也能搜索、翻页、看商品详情和卖家信息；
+- 顶栏游客状态显示「登录 / 注册」，商品列表和详情页有登录引导条；
+- 点「联系卖家 / 举报 / 发布商品 / 消息 / 我的商品」等需要登录的功能时，会提示并跳到登录页，登录后自动回到原页面；
+- 浏览记录只在登录后上报（游客不产生记录）。
+
+> 后端配合：`SecurityConfig` 的 JWT 拦截器放行了 `/api/product/detail/**`，否则游客打开详情会 401；`/api/product/list` 原本就放行。
+>
+> 如果后端还没放行 detail，前端也会**显示「请先登录」而不是「商品不存在」**（详情页会区分 401 和真正的 404/商品不存在）。
+
 
 ## 页面细节
 
@@ -432,6 +482,12 @@ docker run -d --name secondhand-platform -p 8080:8080 secondhand-platform
 - 进入商品详情页时调用 `POST /api/history/record` 记录（后端按 user_id + product_id 去重，只更新时间）；
 - 列表从 `GET /api/history/list` 拉取最近 50 条，展示缩略图、标题、价格、浏览时间，可「查看」或「删除」，支持一键清空；
 - 数据存 MySQL 的 `browse_history` 表，同一账号换设备登录也能看到。
+
+**我的收藏** `/favorites`：
+- 商品卡片右上角红心收藏/取消（游客点击会提示登录）；
+- 详情页操作区也有「收藏 / 已收藏」按钮；
+- 「我的收藏」页展示收藏的商品（图片、标题、价格、状态），可查看或取消收藏；
+- 收藏存 MySQL 的 `favorite` 表，按 `user_id + product_id` 唯一，跨设备同步。
 
 **商品列表页**：顶部栏展示昵称头像、发布入口、退出登录；搜索区支持关键词、价格区间；卡片悬浮显示“查看详情”，点击进入详情页；分页支持每页 8/12/20/40 条。
 
@@ -480,12 +536,17 @@ docker run -d --name secondhand-platform -p 8080:8080 secondhand-platform
 **管理员后台** `/admin`（仅 `role === 1` 可见可进）：
 
 - 顶栏用户菜单出现「管理员后台」入口；直接访问 `/admin` 时路由守卫会调用 `/api/user/info` 校验角色，非管理员会被拦回商品列表；
-- 左侧菜单：商品审核 / 举报处理；
+- 左侧菜单：商品审核 / 举报处理 / 数据统计；
 - **商品审核**：列出 `status = 0` 的商品（图片、标题、描述、价格、发布时间、商品编号），**点击缩略图、标题或「查看详情」会跳转到商品详情页**；可「通过」或「驳回」，二次确认后调用审核接口，成功后从列表移除，后端自动给卖家发系统通知，并立即清掉商品列表缓存（审核通过的商品马上能在列表看到）；
 - **举报处理**：Tab 切换「待处理 / 已处理」，列表展示举报原因、举报人 ID、举报时间，并额外调用商品详情接口补出被举报商品的标题/图片/价格（点击也能进详情）。待处理举报有两种处理方式：
   - **处理并下架商品**：判定违规 → 商品置为违规下架（status=3）+ 给卖家发系统通知 + 清列表缓存；
   - **驳回举报**：认定举报不成立 → 只把举报标记为已处理，商品保持原状态，**不会给卖家发任何通知**。
   - 处理完后记录会移动到「已处理」Tab，可在历史里回看。
+- **数据统计**：调用 `GET /api/admin/statistics/overview`，ECharts 展示：
+  - 4 个指标卡：今日新增用户、今日新增商品、今日成交额、累计成交额；
+  - 近 7 天折线图：新增用户 / 新增商品 / 成交额（双 Y 轴）；
+  - 商品状态饼图：待审核 / 在售 / 已售出 / 违规下架。
+  - 成交额按 `product.status = 2` 且 `sold_time` 落在当天统计；标记已售出时后端会写入 `sold_time`。
 
 > 通知时机说明：提交举报本身不会通知卖家；只有管理员真的点了「处理并下架商品」才会生成「商品违规下架通知」。如果卖家在举报处理前就收到了通知，那多半是更早版本遗留的数据（例如本文档截图里那条 2026-11-07 的「违规警告」），可以到数据库 `notification` 表按 id 清理。
 

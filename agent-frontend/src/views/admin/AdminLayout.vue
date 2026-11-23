@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Goods, Warning } from '@element-plus/icons-vue'
+import { ArrowLeft, Goods, TrendCharts, Warning } from '@element-plus/icons-vue'
 import AppHeader from '@/components/AppHeader.vue'
 
 const route = useRoute()
@@ -28,6 +28,10 @@ const activeMenu = computed(() => route.path)
           <el-menu-item index="/admin/reports">
             <el-icon><Warning /></el-icon>
             <span>举报处理</span>
+          </el-menu-item>
+          <el-menu-item index="/admin/stats">
+            <el-icon><TrendCharts /></el-icon>
+            <span>数据统计</span>
           </el-menu-item>
         </el-menu>
         <div class="side-foot">

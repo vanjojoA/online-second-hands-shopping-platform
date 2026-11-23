@@ -2,10 +2,10 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Bell, ChatDotRound, Clock, Goods, Plus, Setting, SwitchButton, User as UserIcon } from '@element-plus/icons-vue'
+import { Bell, ChatDotRound, Clock, Goods, Plus, Setting, Star, SwitchButton, User as UserIcon } from '@element-plus/icons-vue'
 import { userState } from '@/stores/user'
 import { clearAuth, updateUser } from '@/utils/auth'
-import { getUserInfo } from '@/api/user'
+import { getUserInfo, logout } from '@/api/user'
 import { getUnreadCount } from '@/api/message'
 import { getNotifications } from '@/api/notification'
 import { resolveImageUrl } from '@/utils/url'
@@ -16,6 +16,9 @@ const route = useRoute()
 const unread = ref(0)
 const noticeUnread = ref(0)
 let timer = null
+
+// 依赖响应式 userState：登录/退出后顶栏会立即切换
+const isLoggedIn = computed(() => Boolean(userState.userId))
 
 const avatarUrl = computed(() => resolveImageUrl(userState.avatar))
 
@@ -46,27 +49,54 @@ async function refreshNoticeUnread() {
 }
 
 function refreshBadges() {
+  if (!isLoggedIn.value) {
+    unread.value = 0
+    noticeUnread.value = 0
+    return
+  }
   refreshChatUnread()
   refreshNoticeUnread()
 }
 
+async function doLogout() {
+  // 先通知后端把当前 Token 加入 Redis 黑名单，再清本地
+  try {
+    await logout()
+  } catch {
+    // Token 已失效 / 网络异常也不影响本地退出
+  }
+  clearAuth()
+  ElMessage.success('已退出登录')
+  router.replace('/login')
+}
+
 function handleCommand(command) {
   if (command === 'logout') {
-    clearAuth()
-    ElMessage.success('已退出登录')
-    router.replace('/login')
+    doLogout()
   } else if (command === 'my-products') {
     router.push('/my-products')
   } else if (command === 'profile') {
     router.push('/profile')
   } else if (command === 'history') {
     router.push('/history')
+  } else if (command === 'favorites') {
+    router.push('/favorites')
   } else if (command === 'admin') {
     router.push('/admin')
   }
 }
 
+function goLogin() {
+  router.push({ name: 'login', query: { redirect: route.fullPath } })
+}
+
+function goRegister() {
+  router.push({ name: 'register', query: { redirect: route.fullPath } })
+}
+
 onMounted(async () => {
+  if (!isLoggedIn.value) return
+
   refreshBadges()
   // 轮询未读数：私信 + 系统通知
   timer = setInterval(refreshBadges, 20000)
@@ -92,7 +122,9 @@ onBeforeUnmount(() => {
 // 路由变化（例如从聊天页返回）时刷新未读
 watch(
   () => route.fullPath,
-  () => refreshBadges()
+  () => {
+    if (isLoggedIn.value) refreshBadges()
+  }
 )
 </script>
 
@@ -109,30 +141,50 @@ watch(
           发布商品
         </el-button>
 
-        <el-badge :value="noticeUnread" :max="99" :hidden="noticeUnread <= 0" class="icon-badge">
+        <el-badge
+          v-if="isLoggedIn"
+          :value="noticeUnread"
+          :max="99"
+          :hidden="noticeUnread <= 0"
+          class="icon-badge"
+        >
           <el-button circle :icon="Bell" class="icon-btn" title="系统通知" @click="router.push('/notifications')" />
         </el-badge>
 
-        <el-badge :value="unread" :max="99" :hidden="unread <= 0" class="icon-badge">
+        <el-badge
+          v-if="isLoggedIn"
+          :value="unread"
+          :max="99"
+          :hidden="unread <= 0"
+          class="icon-badge"
+        >
           <el-button circle :icon="ChatDotRound" class="icon-btn" title="私信" @click="router.push('/messages')" />
         </el-badge>
 
-        <el-dropdown trigger="click" @command="handleCommand">
-          <span class="user-chip">
-            <el-avatar :size="30" :src="avatarUrl || undefined" class="user-avatar">{{ avatarText }}</el-avatar>
-            <span class="user-name">{{ userState.nickname || '同学' }}</span>
-            <el-icon class="arrow"><ArrowDown /></el-icon>
-          </span>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="profile" :icon="UserIcon">个人中心</el-dropdown-item>
-              <el-dropdown-item command="my-products" :icon="Goods">我的商品</el-dropdown-item>
-              <el-dropdown-item command="history" :icon="Clock">浏览记录</el-dropdown-item>
-              <el-dropdown-item v-if="isAdmin" command="admin" :icon="Setting">管理员后台</el-dropdown-item>
-              <el-dropdown-item command="logout" :icon="SwitchButton" divided>退出登录</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+        <template v-if="isLoggedIn">
+          <el-dropdown trigger="click" @command="handleCommand">
+            <span class="user-chip">
+              <el-avatar :size="30" :src="avatarUrl || undefined" class="user-avatar">{{ avatarText }}</el-avatar>
+              <span class="user-name">{{ userState.nickname || '同学' }}</span>
+              <el-icon class="arrow"><ArrowDown /></el-icon>
+            </span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="profile" :icon="UserIcon">个人中心</el-dropdown-item>
+                <el-dropdown-item command="my-products" :icon="Goods">我的商品</el-dropdown-item>
+                <el-dropdown-item command="favorites" :icon="Star">我的收藏</el-dropdown-item>
+                <el-dropdown-item command="history" :icon="Clock">浏览记录</el-dropdown-item>
+                <el-dropdown-item v-if="isAdmin" command="admin" :icon="Setting">管理员后台</el-dropdown-item>
+                <el-dropdown-item command="logout" :icon="SwitchButton" divided>退出登录</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </template>
+
+        <template v-else>
+          <el-button round @click="goLogin">登录</el-button>
+          <el-button type="primary" round @click="goRegister">注册</el-button>
+        </template>
       </div>
     </div>
   </header>
