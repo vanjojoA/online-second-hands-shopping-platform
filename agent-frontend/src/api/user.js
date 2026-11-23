@@ -25,6 +25,14 @@ export function getUserInfo() {
 }
 
 /**
+ * 退出登录：把当前 Token 加入后端 Redis 黑名单（需要 Token）
+ * 调用成功后，这个 Token 再拿来请求会直接 401
+ */
+export function logout() {
+  return request.post('/api/user/logout')
+}
+
+/**
  * 修改昵称 / 头像
  * @param {{ nickname?: string, avatar?: string }} data
  */

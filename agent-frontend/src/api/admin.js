@@ -24,6 +24,11 @@ export function getHandledReports() {
   return request.get('/api/admin/report/handled')
 }
 
+/** 数据统计：今日新增、成交额、近 7 天趋势、商品状态分布 */
+export function getStatistics() {
+  return request.get('/api/admin/statistics/overview')
+}
+
 /**
  * 处理举报
  * @param {number|string} reportId

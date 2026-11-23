@@ -16,6 +16,7 @@ public class Product {
     private Double price;      // 价格
     private String description;// 描述
     private String imageUrls;  // 图片URL(多个用逗号隔开)
-    private Integer status;    // 0-待审核, 1-在售, 2-已售出
+    private Integer status;    // 0-待审核, 1-在售, 2-已售出, 3-违规下架
+    private LocalDateTime soldTime; // 成交时间（标记已售出时写入，用于交易额统计）
     private LocalDateTime createTime;
 }

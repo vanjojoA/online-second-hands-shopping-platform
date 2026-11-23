@@ -30,16 +30,24 @@ const routes = [
     meta: { requiresAuth: true, title: '浏览记录' }
   },
   {
+    path: '/favorites',
+    name: 'favorites',
+    component: () => import('@/views/FavoritesView.vue'),
+    meta: { requiresAuth: true, title: '我的收藏' }
+  },
+  {
     path: '/products',
     name: 'products',
     component: () => import('@/views/ProductListView.vue'),
-    meta: { requiresAuth: true, title: '商品列表' }
+    // 游客可访问：未登录也能浏览商品
+    meta: { title: '商品列表' }
   },
   {
     path: '/products/:id',
     name: 'product-detail',
     component: () => import('@/views/ProductDetailView.vue'),
-    meta: { requiresAuth: true, title: '商品详情' }
+    // 游客可访问：未登录也能查看商品详情
+    meta: { title: '商品详情' }
   },
   {
     path: '/publish',
@@ -94,6 +102,12 @@ const routes = [
         name: 'admin-reports',
         component: () => import('@/views/admin/AdminReportsView.vue'),
         meta: { title: '举报处理' }
+      },
+      {
+        path: 'stats',
+        name: 'admin-stats',
+        component: () => import('@/views/admin/AdminStatsView.vue'),
+        meta: { title: '数据统计' }
       }
     ]
   },
@@ -111,6 +125,7 @@ router.beforeEach(async (to) => {
 
   // 需要登录但没有 Token：跳登录页，并记住原本要去的地址
   if (to.meta.requiresAuth && !token) {
+    ElMessage.warning('请先登录后再使用该功能')
     return { name: 'login', query: { redirect: to.fullPath } }
   }
 

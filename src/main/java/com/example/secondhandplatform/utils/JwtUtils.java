@@ -32,4 +32,19 @@ public class JwtUtils {
                 .getBody()
                 .get("userId", Long.class); // 取出我们在生成时塞进去的 userId
     }
+
+    // 获取 Token 的剩余有效时间（毫秒）
+    public static long getTokenExpirationTime(String token) {
+        try {
+            return Jwts.parserBuilder()
+                    .setSigningKey(SECRET_KEY.getBytes())
+                    .build()
+                    .parseClaimsJws(token)
+                    .getBody()
+                    .getExpiration()
+                    .getTime(); // 返回过期时间的时间戳
+        } catch (Exception e) {
+            return 0;
+        }
+    }
 }

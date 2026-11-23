@@ -3,9 +3,10 @@ import request from './request'
 /**
  * 记录一次商品浏览（后端按 user_id + product_id 去重，重复浏览只更新时间）
  * @param {number|string} productId
+ * @param {object} config axios 额外配置，例如 { __silent: true }
  */
-export function recordBrowse(productId) {
-  return request.post('/api/history/record', null, { params: { productId } })
+export function recordBrowse(productId, config = {}) {
+  return request.post('/api/history/record', null, { ...config, params: { productId } })
 }
 
 /** 我的浏览记录（最近 50 条，带商品信息） */

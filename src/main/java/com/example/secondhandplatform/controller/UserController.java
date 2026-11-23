@@ -4,6 +4,7 @@ import com.example.secondhandplatform.common.Result;
 import com.example.secondhandplatform.entity.User;
 import com.example.secondhandplatform.mapper.UserMapper;
 
+import com.example.secondhandplatform.utils.JwtUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +23,9 @@ public class UserController {
 
     @Autowired
     private com.example.secondhandplatform.mapper.ProductMapper productMapper;
+
+    @Autowired
+    private org.springframework.data.redis.core.StringRedisTemplate redisTemplate;
     @PostMapping("/register")
     public Result<?> register(@Valid @RequestBody User user) {
         // 1.如果前端没传昵称，给个默认昵称（比如“用户+学号后4位”）
@@ -158,5 +162,28 @@ public class UserController {
 
         java.util.List<com.example.secondhandplatform.entity.Product> list = productMapper.selectList(wrapper);
         return Result.success(list);
+    }
+
+    @PostMapping("/logout")
+    public Result<?> logout(HttpServletRequest request) {
+        // 1. 从 Header 获取 Token
+        String token = request.getHeader("Authorization");
+        if (token == null || !token.startsWith("Bearer ")) {
+            return Result.error("Token 不存在");
+        }
+        token = token.substring(7);
+
+        // 2. 计算剩余过期时间
+        long expireTime = JwtUtils.getTokenExpirationTime(token);
+        long currentTime = System.currentTimeMillis();
+        long remainingTime = expireTime - currentTime;
+
+        // 3. 如果还没过期，就加入黑名单，并设置一样的过期时间
+        if (remainingTime > 0) {
+            // 存储在 Redis：key 叫 token:blacklist:你的token，value 随便存个 "1"
+            redisTemplate.opsForValue().set("token:blacklist:" + token, "1", remainingTime, java.util.concurrent.TimeUnit.MILLISECONDS);
+        }
+
+        return Result.success("退出登录成功");
     }
 }

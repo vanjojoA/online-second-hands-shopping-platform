@@ -1,16 +1,54 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Refresh, Search } from '@element-plus/icons-vue'
 import AppHeader from '@/components/AppHeader.vue'
 import ProductCard from '@/components/ProductCard.vue'
 import { getProductList } from '@/api/product'
+import { getFavoriteIds } from '@/api/favorite'
+import { userState } from '@/stores/user'
 
+const route = useRoute()
+const router = useRouter()
+
+// 游客可浏览商品，只有登录后才有 userId
+const loggedIn = computed(() => Boolean(userState.userId))
+
+function goLogin() {
+  router.push({ name: 'login', query: { redirect: route.fullPath } })
+}
+
+function goRegister() {
+  router.push({ name: 'register', query: { redirect: route.fullPath } })
+}
+
+async function loadFavoriteIds() {
+  if (!loggedIn.value) {
+    favoriteIds.value = new Set()
+    return
+  }
+  try {
+    // 静默请求：后端还没部署收藏接口时，不要每次进列表都弹错误
+    const res = await getFavoriteIds({ __silent: true })
+    favoriteIds.value = new Set((res.data || []).map((id) => Number(id)))
+  } catch {
+    // 忽略
+  }
+}
+
+function onFavoriteChanged({ id, favorited }) {
+  const next = new Set(favoriteIds.value)
+  if (favorited) next.add(Number(id))
+  else next.delete(Number(id))
+  favoriteIds.value = next
+}
 const products = ref([])
 const total = ref(0)
 const loading = ref(false)
 const page = ref(1)
 const size = ref(8)
+const favoriteIds = ref(new Set())
 
 const filters = reactive({
   keyword: '',
@@ -79,7 +117,10 @@ function handlePageChange(val) {
   fetchList()
 }
 
-onMounted(fetchList)
+onMounted(() => {
+  fetchList()
+  loadFavoriteIds()
+})
 </script>
 
 <template>
@@ -128,6 +169,15 @@ onMounted(fetchList)
         </div>
       </section>
 
+      <!-- 游客提示 -->
+      <div v-if="!loggedIn" class="guest-bar">
+        <span>登录后即可联系卖家、发布商品、查看消息</span>
+        <div class="guest-bar-actions">
+          <el-button size="small" @click="goLogin">登录</el-button>
+          <el-button size="small" type="primary" @click="goRegister">免费注册</el-button>
+        </div>
+      </div>
+
       <!-- 结果区 -->
       <div class="result-bar">
         <div class="result-title">
@@ -144,7 +194,14 @@ onMounted(fetchList)
         />
 
         <div v-else class="product-grid">
-          <ProductCard v-for="item in products" :key="item.id" :product="item" />
+          <ProductCard
+            v-for="item in products"
+            :key="item.id"
+            :product="item"
+            :favorited="favoriteIds.has(Number(item.id))"
+            :can-favorite="true"
+            @favorite-changed="onFavoriteChanged"
+          />
         </div>
       </section>
 
@@ -236,9 +293,28 @@ onMounted(fetchList)
   text-align: left;
 }
 
-.result-bar {
-  margin: 24px 4px 14px;
+.guest-bar {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: #f3f2ff;
+  border: 1px dashed #d8d5fb;
+  color: #5b51c9;
+  font-size: 13px;
+}
+
+.guest-bar-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.result-bar {
+  margin: 24px 4px 14px;  display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;

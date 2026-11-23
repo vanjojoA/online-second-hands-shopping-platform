@@ -3,10 +3,16 @@ package com.example.secondhandplatform.common;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    // 0. 接口不存在（常见于前端已更新、后端还是旧版本）
+    @ExceptionHandler(NoResourceFoundException.class)
+    public Result<?> handleNoResourceFound(NoResourceFoundException e) {
+        return Result.error("接口不存在：/" + e.getResourcePath() + "，请确认后端已部署最新版本");
+    }
     // 1. 捕获所有未知的 Exception（兜底方案）
     @ExceptionHandler(Exception.class)
     public Result<?> handleException(Exception e) {

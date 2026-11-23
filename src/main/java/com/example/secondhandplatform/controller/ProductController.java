@@ -197,8 +197,9 @@ public class ProductController {
             return Result.error("操作失败：你没有权限修改别人的商品状态！");
         }
 
-        // 5. 校验通过，修改状态为 2（已售出）
+        // 5. 校验通过，修改状态为 2（已售出），并记录成交时间（统计交易额用）
         dbProduct.setStatus(2);
+        dbProduct.setSoldTime(java.time.LocalDateTime.now());
         productMapper.updateById(dbProduct);
         // 商品状态变了（已售出，不再出现在在售列表里），同样要清掉列表缓存
         clearProductListCache();
